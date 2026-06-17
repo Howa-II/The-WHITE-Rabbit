@@ -279,21 +279,23 @@ class ConfirmButton(discord.ui.Button):
         lang_selected = emojis & set(LANG_EMOJIS.keys())
         has_truth = TRUTH_EMOJI in emojis
 
+        translator = interaction.user.mention
+
         # ── Cas 1 : Traduction simple ──
         if len(emojis) == 1 and lang_selected:
             target_emoji = list(lang_selected)[0]
             target_lang = LANG_EMOJIS[target_emoji]
             if target_lang == source_lang:
-                result = f"{source_emoji} *(Le message est déjà en {source_lang}.)*"
+                result = f"{source_emoji} *(Le message est déjà en {source_lang}.)*\n*(traduit par {translator})*"
             else:
                 translated = translate_text(text, target_lang)
-                result = f"{source_emoji} {translated}"
+                result = f"{source_emoji} {translated}\n*(traduit par {translator})*"
             await original_message.reply(result)
 
         # ── Cas 2 : Vérité seule ──
         elif len(emojis) == 1 and has_truth:
             truth = get_truth(text, target_lang=None)
-            result = f"{source_emoji} 🔎 {truth}"
+            result = f"{source_emoji} 🔎 {truth}\n*(révélé par {translator})*"
             await original_message.reply(result)
 
         # ── Cas 3 : Vérité + langue ──
@@ -301,7 +303,7 @@ class ConfirmButton(discord.ui.Button):
             target_emoji = list(lang_selected)[0]
             target_lang = LANG_EMOJIS[target_emoji]
             truth = get_truth(text, target_lang=target_lang)
-            result = f"{source_emoji} 🔎 {truth}"
+            result = f"{source_emoji} 🔎 {truth}\n*(révélé par {translator})*"
             await original_message.reply(result)
 
         await interaction.followup.send("✅ Fait !", ephemeral=True)
