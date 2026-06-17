@@ -44,10 +44,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 def process_translation(text: str, target_lang: str | None, mode: str) -> tuple[str, str]:
-    """
-    Un seul appel Claude qui détecte la langue ET traduit/génère la vérité.
-    Retourne (source_lang, result_text)
-    """
     supported = ", ".join(LANG_EMOJIS.values())
 
     if mode == "translate" and target_lang:
@@ -60,7 +56,7 @@ def process_translation(text: str, target_lang: str | None, mode: str) -> tuple[
             f"RESULT: <translation>\n\n"
             f"Text: {text}"
         )
-    elif mode == "truth":
+    else:
         lang_instruction = f"in {target_lang}" if target_lang else "in the same language as the original text"
         prompt = (
             f"Do two things at once:\n"
@@ -71,8 +67,6 @@ def process_translation(text: str, target_lang: str | None, mode: str) -> tuple[
             f"RESULT: <hidden truth>\n\n"
             f"Text: {text}"
         )
-    else:
-        return "UNKNOWN", "❌ Unknown mode."
 
     response = anthropic_client.messages.create(
         model="claude-sonnet-4-6",
@@ -81,22 +75,18 @@ def process_translation(text: str, target_lang: str | None, mode: str) -> tuple[
     )
 
     lines = response.content[0].text.strip().split("\n")
-    source_lang = "UNKNOWN"
+    source_lang = None
     result = ""
 
     for line in lines:
         if line.startswith("LANG:"):
-            source_lang = line.replace("LANG:", "").strip()
+            raw = line.replace("LANG:", "").strip()
+            for lang in LANG_EMOJIS.values():
+                if lang.lower() == raw.lower():
+                    source_lang = lang
+                    break
         elif line.startswith("RESULT:"):
             result = line.replace("RESULT:", "").strip()
-
-    # Normaliser la langue détectée
-    for lang in LANG_EMOJIS.values():
-        if lang.lower() == source_lang.lower():
-            source_lang = lang
-            break
-    else:
-        source_lang = None
 
     return source_lang, result
 
@@ -158,12 +148,15 @@ class TranslateView(discord.ui.View):
             await interaction.response.send_message("⚠️ Please select a language or Back Thought first!", ephemeral=True)
             return
 
-        await interaction.response.defer(ephemeral=True)
+        # Fermer le panneau immédiatement
+        await interaction.response.edit_message(content="⏳ Processing...", view=None)
+        self.stop()
 
         values = self.selected_values
         has_truth = "TRUTH" in values
         lang_values = [v for v in values if v != "TRUTH"]
         translator = interaction.user.mention
+        supported_list = ", ".join(LANG_EMOJIS.values())
 
         try:
             if not has_truth and len(lang_values) == 1:
@@ -171,8 +164,7 @@ class TranslateView(discord.ui.View):
                 source_lang, result_text = process_translation(self.original_text, target_lang, "translate")
 
                 if source_lang is None:
-                    await interaction.followup.send(f"❌ **Language not registered.**\n**Supported:** {', '.join(LANG_EMOJIS.values())}", ephemeral=True)
-                    self.stop()
+                    await interaction.edit_original_response(content=f"❌ **Language not registered.**\n**Supported:** {supported_list}")
                     return
 
                 source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
@@ -186,8 +178,7 @@ class TranslateView(discord.ui.View):
                 source_lang, result_text = process_translation(self.original_text, None, "truth")
 
                 if source_lang is None:
-                    await interaction.followup.send(f"❌ **Language not registered.**\n**Supported:** {', '.join(LANG_EMOJIS.values())}", ephemeral=True)
-                    self.stop()
+                    await interaction.edit_original_response(content=f"❌ **Language not registered.**\n**Supported:** {supported_list}")
                     return
 
                 source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
@@ -198,25 +189,21 @@ class TranslateView(discord.ui.View):
                 source_lang, result_text = process_translation(self.original_text, target_lang, "truth")
 
                 if source_lang is None:
-                    await interaction.followup.send(f"❌ **Language not registered.**\n**Supported:** {', '.join(LANG_EMOJIS.values())}", ephemeral=True)
-                    self.stop()
+                    await interaction.edit_original_response(content=f"❌ **Language not registered.**\n**Supported:** {supported_list}")
                     return
 
                 source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
                 reply = f"{source_emoji} 🔎 {result_text}\n*(revealed by {translator})*"
 
             else:
-                await interaction.followup.send("❌ Invalid combination.", ephemeral=True)
-                self.stop()
+                await interaction.edit_original_response(content="❌ Invalid combination.")
                 return
 
             await self.message_ref.reply(reply)
-            await interaction.followup.send("✅ Done!", ephemeral=True)
+            await interaction.edit_original_response(content="✅ Done!")
 
         except Exception as e:
-            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
-
-        self.stop()
+            await interaction.edit_original_response(content=f"❌ Error: {str(e)}")
 
     @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger, row=1)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -258,4 +245,3 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
-                                                
