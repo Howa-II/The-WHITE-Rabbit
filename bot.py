@@ -43,37 +43,62 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
-def detect_language(text: str) -> str | None:
+def process_translation(text: str, target_lang: str | None, mode: str) -> tuple[str, str]:
+    """
+    Un seul appel Claude qui détecte la langue ET traduit/génère la vérité.
+    Retourne (source_lang, result_text)
+    """
     supported = ", ".join(LANG_EMOJIS.values())
+
+    if mode == "translate" and target_lang:
+        prompt = (
+            f"Do two things at once:\n"
+            f"1. Detect the language of this text from this list ONLY: {supported}. If not in list, write UNKNOWN.\n"
+            f"2. Translate the text to {target_lang}.\n\n"
+            f"Reply in this exact format (2 lines only):\n"
+            f"LANG: <detected language>\n"
+            f"RESULT: <translation>\n\n"
+            f"Text: {text}"
+        )
+    elif mode == "truth":
+        lang_instruction = f"in {target_lang}" if target_lang else "in the same language as the original text"
+        prompt = (
+            f"Do two things at once:\n"
+            f"1. Detect the language of this text from this list ONLY: {supported}. If not in list, write UNKNOWN.\n"
+            f"2. As a humorous Discord bot, reveal the hidden true meaning of this message based on Discord/gaming clichés. Reply {lang_instruction}, short and funny.\n\n"
+            f"Reply in this exact format (2 lines only):\n"
+            f"LANG: <detected language>\n"
+            f"RESULT: <hidden truth>\n\n"
+            f"Text: {text}"
+        )
+    else:
+        return "UNKNOWN", "❌ Unknown mode."
+
     response = anthropic_client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=20,
-        messages=[{"role": "user", "content": f"Detect the language of the following text. Reply ONLY with the exact name from this list: {supported}. If not in the list, reply UNKNOWN.\n\nText: {text}"}]
+        max_tokens=300,
+        messages=[{"role": "user", "content": prompt}]
     )
-    result = response.content[0].text.strip().lower()
+
+    lines = response.content[0].text.strip().split("\n")
+    source_lang = "UNKNOWN"
+    result = ""
+
+    for line in lines:
+        if line.startswith("LANG:"):
+            source_lang = line.replace("LANG:", "").strip()
+        elif line.startswith("RESULT:"):
+            result = line.replace("RESULT:", "").strip()
+
+    # Normaliser la langue détectée
     for lang in LANG_EMOJIS.values():
-        if lang.lower() == result:
-            return lang
-    return None
+        if lang.lower() == source_lang.lower():
+            source_lang = lang
+            break
+    else:
+        source_lang = None
 
-
-def translate_text(text: str, target_lang: str) -> str:
-    response = anthropic_client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=500,
-        messages=[{"role": "user", "content": f"Translate this text to {target_lang}. Reply ONLY with the translation.\n\nText: {text}"}]
-    )
-    return response.content[0].text.strip()
-
-
-def get_truth(text: str, target_lang: str | None = None) -> str:
-    lang_instruction = f"in {target_lang}" if target_lang else "in the same language as the original message"
-    response = anthropic_client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=200,
-        messages=[{"role": "user", "content": f"You are a humorous Discord bot. Reveal the hidden true meaning behind this message based on Discord/gaming clichés. Reply {lang_instruction}, short and funny, ONLY the hidden truth.\n\nMessage: {text}"}]
-    )
-    return response.content[0].text.strip()
+    return source_lang, result
 
 
 class TranslateView(discord.ui.View):
@@ -133,52 +158,63 @@ class TranslateView(discord.ui.View):
             await interaction.response.send_message("⚠️ Please select a language or Back Thought first!", ephemeral=True)
             return
 
-        # Désactiver les boutons immédiatement
-        for item in self.children:
-            item.disabled = True
-
-        await interaction.response.edit_message(content="⏳ Processing...", view=self)
+        await interaction.response.defer(ephemeral=True)
 
         values = self.selected_values
         has_truth = "TRUTH" in values
         lang_values = [v for v in values if v != "TRUTH"]
         translator = interaction.user.mention
 
-        source_lang = detect_language(self.original_text)
-        if source_lang is None:
-            await interaction.edit_original_response(
-                content=f"❌ **Language not registered.**\n**Supported:** {', '.join(LANG_EMOJIS.values())}"
-            )
-            self.stop()
-            return
-
-        source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
-
         try:
             if not has_truth and len(lang_values) == 1:
                 target_lang = LANG_EMOJIS[lang_values[0]]
-                if target_lang == source_lang:
-                    result = f"{source_emoji} *(Already in {source_lang}.)*\n*(by {translator})*"
+                source_lang, result_text = process_translation(self.original_text, target_lang, "translate")
+
+                if source_lang is None:
+                    await interaction.followup.send(f"❌ **Language not registered.**\n**Supported:** {', '.join(LANG_EMOJIS.values())}", ephemeral=True)
+                    self.stop()
+                    return
+
+                source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
+
+                if source_lang == target_lang:
+                    reply = f"{source_emoji} *(Already in {source_lang}.)*\n*(by {translator})*"
                 else:
-                    translated = translate_text(self.original_text, target_lang)
-                    result = f"{source_emoji} {translated}\n*(translated by {translator})*"
-                await self.message_ref.reply(result)
+                    reply = f"{source_emoji} {result_text}\n*(translated by {translator})*"
 
             elif has_truth and len(lang_values) == 0:
-                truth = get_truth(self.original_text)
-                result = f"{source_emoji} 🔎 {truth}\n*(revealed by {translator})*"
-                await self.message_ref.reply(result)
+                source_lang, result_text = process_translation(self.original_text, None, "truth")
+
+                if source_lang is None:
+                    await interaction.followup.send(f"❌ **Language not registered.**\n**Supported:** {', '.join(LANG_EMOJIS.values())}", ephemeral=True)
+                    self.stop()
+                    return
+
+                source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
+                reply = f"{source_emoji} 🔎 {result_text}\n*(revealed by {translator})*"
 
             elif has_truth and len(lang_values) == 1:
                 target_lang = LANG_EMOJIS[lang_values[0]]
-                truth = get_truth(self.original_text, target_lang)
-                result = f"{source_emoji} 🔎 {truth}\n*(revealed by {translator})*"
-                await self.message_ref.reply(result)
+                source_lang, result_text = process_translation(self.original_text, target_lang, "truth")
 
-            await interaction.edit_original_response(content="✅ Done!")
+                if source_lang is None:
+                    await interaction.followup.send(f"❌ **Language not registered.**\n**Supported:** {', '.join(LANG_EMOJIS.values())}", ephemeral=True)
+                    self.stop()
+                    return
+
+                source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
+                reply = f"{source_emoji} 🔎 {result_text}\n*(revealed by {translator})*"
+
+            else:
+                await interaction.followup.send("❌ Invalid combination.", ephemeral=True)
+                self.stop()
+                return
+
+            await self.message_ref.reply(reply)
+            await interaction.followup.send("✅ Done!", ephemeral=True)
 
         except Exception as e:
-            await interaction.edit_original_response(content=f"❌ Error: {str(e)}")
+            await interaction.followup.send(f"❌ Error: {str(e)}", ephemeral=True)
 
         self.stop()
 
@@ -222,4 +258,4 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
-    
+                                                
