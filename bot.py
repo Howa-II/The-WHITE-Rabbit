@@ -12,27 +12,27 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 anthropic_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 LANG_EMOJIS = {
-    "🇬🇧": "anglais",
-    "🇫🇷": "français",
-    "🇸🇦": "arabe",
-    "🇯🇵": "japonais",
-    "🇮🇹": "italien",
-    "🇩🇪": "allemand",
-    "🇪🇸": "espagnol",
-    "🇷🇺": "russe",
-    "🇲🇦": "dialecte maghrébin",
-    "🇵🇹": "portugais",
-    "🇳🇱": "néerlandais",
-    "🇰🇷": "coréen",
-    "🇨🇳": "chinois",
-    "🇷🇴": "roumain",
-    "🇵🇱": "polonais",
-    "🇨🇿": "tchèque",
-    "🇧🇬": "bulgare",
-    "🇭🇺": "hongrois",
-    "🇭🇷": "croate",
-    "🇻🇳": "vietnamien",
-    "🇹🇭": "thaïlandais",
+    "🇬🇧": "English",
+    "🇫🇷": "French",
+    "🇸🇦": "Arabic",
+    "🇯🇵": "Japanese",
+    "🇮🇹": "Italian",
+    "🇩🇪": "German",
+    "🇪🇸": "Spanish",
+    "🇷🇺": "Russian",
+    "🇲🇦": "Maghrebi dialect",
+    "🇵🇹": "Portuguese",
+    "🇳🇱": "Dutch",
+    "🇰🇷": "Korean",
+    "🇨🇳": "Chinese",
+    "🇷🇴": "Romanian",
+    "🇵🇱": "Polish",
+    "🇨🇿": "Czech",
+    "🇧🇬": "Bulgarian",
+    "🇭🇺": "Hungarian",
+    "🇭🇷": "Croatian",
+    "🇻🇳": "Vietnamese",
+    "🇹🇭": "Thai",
 }
 
 LANG_TO_EMOJI = {v: k for k, v in LANG_EMOJIS.items()}
@@ -42,21 +42,13 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-active_sessions: dict[int, dict] = {}
-
 
 def detect_language(text: str) -> str | None:
     supported = ", ".join(LANG_EMOJIS.values())
-    prompt = (
-        f"Détecte la langue du texte suivant. "
-        f"Réponds UNIQUEMENT avec le nom exact de la langue parmi cette liste : {supported}. "
-        f"Si la langue n'est PAS dans cette liste, réponds uniquement avec le mot : INCONNU.\n\n"
-        f"Texte : {text}"
-    )
     response = anthropic_client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=20,
-        messages=[{"role": "user", "content": prompt}]
+        messages=[{"role": "user", "content": f"Détecte la langue du texte suivant. Réponds UNIQUEMENT avec le nom exact parmi : {supported}. Si absente, réponds INCONNU.\n\nTexte : {text}"}]
     )
     result = response.content[0].text.strip().lower()
     for lang in LANG_EMOJIS.values():
@@ -75,80 +67,62 @@ def translate_text(text: str, target_lang: str) -> str:
 
 
 def get_truth(text: str, target_lang: str | None = None) -> str:
-    lang_instruction = f"en {target_lang}" if target_lang else "dans la même langue que le message original"
+    lang_instruction = f"en {target_lang}" if target_lang else "dans la même langue que le message"
     response = anthropic_client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=200,
-        messages=[{"role": "user", "content": f"Tu es un bot Discord humoristique. Révèle la vraie signification cachée de ce message en te basant sur les clichés Discord/gaming. Réponds {lang_instruction}, court et drôle, UNIQUEMENT la vérité cachée.\n\nMessage : {text}"}]
+        messages=[{"role": "user", "content": f"Tu es un bot Discord humoristique. Révèle la vraie signification cachée de ce message (clichés Discord/gaming). Réponds {lang_instruction}, court et drôle, UNIQUEMENT la vérité.\n\nMessage : {text}"}]
     )
     return response.content[0].text.strip()
 
 
-# ─── Menu déroulant langue ────────────────────────────────────────────────────
-
-class LanguageSelect(discord.ui.Select):
-    def __init__(self, message_id: int, invoker_id: int):
-        self.message_id = message_id
+class TranslateView(discord.ui.View):
+    def __init__(self, original_text: str, message_ref: discord.Message, invoker_id: int):
+        super().__init__(timeout=120)
+        self.original_text = original_text
+        self.message_ref = message_ref
         self.invoker_id = invoker_id
+        self.selected_values = []
 
-        options = [
-            discord.SelectOption(label="🔎 Vérité cachée", value="TRUTH", description="Révèle la vraie signification"),
-        ]
+        # Menu déroulant
+        options = [discord.SelectOption(label="🔎 Back Thought", value="TRUTH", description="Reveals the hidden truth")]
         for emoji, lang in LANG_EMOJIS.items():
             options.append(discord.SelectOption(label=f"{emoji} {lang.capitalize()}", value=emoji))
 
-        super().__init__(
-            placeholder="Choisis une langue ou la Vérité...",
+        select = discord.ui.Select(
+            placeholder="Choose a language or Back Thought...",
             min_values=1,
             max_values=2,
             options=options[:25],
             row=0
         )
+        select.callback = self.select_callback
+        self.add_item(select)
 
-    async def callback(self, interaction: discord.Interaction):
+    async def select_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.invoker_id:
             await interaction.response.send_message("❌ Ce panneau ne t'appartient pas.", ephemeral=True)
             return
 
-        session = active_sessions.get(self.message_id)
-        if not session:
-            await interaction.response.send_message("❌ Session expirée.", ephemeral=True)
-            return
-
-        values = self.values
-        has_truth = "TRUTH" in values
+        values = interaction.data["values"]
         lang_values = [v for v in values if v != "TRUTH"]
 
-        # Validation
         if len(lang_values) > 1:
-            await interaction.response.send_message(
-                "❌ **Combinaison incompatible** : choisis une seule langue.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("❌ Choose only one language at a time.", ephemeral=True)
             return
 
-        session["selected_values"] = values
-        selected_display = []
-        if has_truth:
-            selected_display.append("🔎 Vérité")
+        self.selected_values = values
+
+        display = []
+        if "TRUTH" in values:
+            display.append("🔎 Back Thought")
         for v in lang_values:
-            selected_display.append(f"{v} {LANG_EMOJIS[v].capitalize()}")
+            display.append(f"{v} {LANG_EMOJIS[v].capitalize()}")
 
         await interaction.response.edit_message(
-            content=f"## Translater\n**Message :** *{session['original_text'][:80]}*\n\n**Sélection :** {' + '.join(selected_display)}\n\nConfirme avec ✅",
-            view=self.view
+            content=f"## Translater\n**Message :** *{self.original_text[:80]}*\n\n**Selection :** {' + '.join(display)}\n\nConfirme avec ✅",
+            view=self
         )
-
-
-class TranslateView(discord.ui.View):
-    def __init__(self, message_id: int, invoker_id: int):
-        super().__init__(timeout=60)
-        self.message_id = message_id
-        self.invoker_id = invoker_id
-        self.add_item(LanguageSelect(message_id=message_id, invoker_id=invoker_id))
-
-    async def on_timeout(self):
-        active_sessions.pop(self.message_id, None)
 
     @discord.ui.button(label="✅ Confirmer", style=discord.ButtonStyle.success, row=1)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -156,94 +130,73 @@ class TranslateView(discord.ui.View):
             await interaction.response.send_message("❌ Ce panneau ne t'appartient pas.", ephemeral=True)
             return
 
-        session = active_sessions.get(self.message_id)
-        if not session:
-            await interaction.response.send_message("❌ Session expirée.", ephemeral=True)
+        if not self.selected_values:
+            await interaction.response.send_message("⚠️ Select a language or Back Thought first!", ephemeral=True)
             return
-
-        if "selected_values" not in session:
-            await interaction.response.send_message("⚠️ Sélectionne d'abord une langue ou la Vérité dans le menu !", ephemeral=True)
-            return
-
-        active_sessions.pop(self.message_id, None)
 
         await interaction.response.defer(ephemeral=True)
+        self.stop()
 
-        values = session["selected_values"]
-        text = session["original_text"]
-        original_message = session["message_ref"]
-        translator = interaction.user.mention
-
+        values = self.selected_values
         has_truth = "TRUTH" in values
         lang_values = [v for v in values if v != "TRUTH"]
+        translator = interaction.user.mention
 
-        source_lang = detect_language(text)
+        source_lang = detect_language(self.original_text)
         if source_lang is None:
             await interaction.followup.send(
-                f"❌ **Langue non enregistrée** : cette langue n'est pas dans ma liste.\n"
-                f"**Langues supportées :** {', '.join(LANG_EMOJIS.values())}",
+                f"❌ **Langue non enregistrée.**\n**Supportées :** {', '.join(LANG_EMOJIS.values())}",
                 ephemeral=True
             )
             return
 
         source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
 
-        # Cas 1 : traduction simple
         if not has_truth and len(lang_values) == 1:
             target_lang = LANG_EMOJIS[lang_values[0]]
             if target_lang == source_lang:
-                result = f"{source_emoji} *(Le message est déjà en {source_lang}.)*\n*(par {translator})*"
+                result = f"{source_emoji} *(Already in {source_lang}.)*\n*(par {translator})*"
             else:
-                translated = translate_text(text, target_lang)
-                result = f"{source_emoji} {translated}\n*(traduit par {translator})*"
-            await original_message.reply(result)
+                translated = translate_text(self.original_text, target_lang)
+                result = f"{source_emoji} {translated}\n*(translated by {translator})*"
+            await self.message_ref.reply(result)
 
-        # Cas 2 : vérité seule
         elif has_truth and len(lang_values) == 0:
-            truth = get_truth(text)
-            result = f"{source_emoji} 🔎 {truth}\n*(révélé par {translator})*"
-            await original_message.reply(result)
+            truth = get_truth(self.original_text)
+            result = f"{source_emoji} 🔎 {truth}\n*(revealed by {translator})*"
+            await self.message_ref.reply(result)
 
-        # Cas 3 : vérité + langue
         elif has_truth and len(lang_values) == 1:
             target_lang = LANG_EMOJIS[lang_values[0]]
-            truth = get_truth(text, target_lang)
-            result = f"{source_emoji} 🔎 {truth}\n*(révélé par {translator})*"
-            await original_message.reply(result)
+            truth = get_truth(self.original_text, target_lang)
+            result = f"{source_emoji} 🔎 {truth}\n*(revealed by {translator})*"
+            await self.message_ref.reply(result)
 
         await interaction.followup.send("✅ Fait !", ephemeral=True)
-        self.stop()
 
     @discord.ui.button(label="❌ Annuler", style=discord.ButtonStyle.danger, row=1)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.invoker_id:
             await interaction.response.send_message("❌ Ce panneau ne t'appartient pas.", ephemeral=True)
             return
-        active_sessions.pop(self.message_id, None)
-        await interaction.response.edit_message(content="❌ Session annulée.", view=None)
+        await interaction.response.edit_message(content="❌ Annulé.", view=None)
         self.stop()
 
 
 @bot.tree.context_menu(name="Translater")
 async def translate_context_menu(interaction: discord.Interaction, message: discord.Message):
-    if message.id in active_sessions:
-        await interaction.response.send_message("⏳ Une session est déjà en cours sur ce message.", ephemeral=True)
-        return
-
     if not message.content.strip():
         await interaction.response.send_message("❌ Ce message ne contient pas de texte.", ephemeral=True)
         return
 
-    active_sessions[message.id] = {
-        "author_id": interaction.user.id,
-        "original_text": message.content,
-        "channel_id": interaction.channel_id,
-        "message_ref": message,
-    }
+    view = TranslateView(
+        original_text=message.content,
+        message_ref=message,
+        invoker_id=interaction.user.id
+    )
 
-    view = TranslateView(message_id=message.id, invoker_id=interaction.user.id)
     await interaction.response.send_message(
-        f"## Translater\n**Message :** *{message.content[:80]}{'...' if len(message.content) > 80 else ''}*\n\nChoisis une langue dans le menu puis confirme avec ✅",
+        f"## Translater\n**Message :** *{message.content[:80]}{'...' if len(message.content) > 80 else ''}*\n\nChoose a language or Back Thought, then confirm with ✅",
         view=view,
         ephemeral=True
     )
@@ -261,4 +214,4 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
-            
+        
