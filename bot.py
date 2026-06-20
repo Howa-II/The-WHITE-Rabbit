@@ -219,7 +219,7 @@ class TranslateView(discord.ui.View):
         self.stop()
 
 
-@bot.tree.context_menu(name="Translater")
+@bot.tree.context_menu(name="TRANSLATER")
 async def translate_context_menu(interaction: discord.Interaction, message: discord.Message):
     if not message.content.strip():
         await interaction.response.send_message("❌ This message contains no text.", ephemeral=True)
@@ -250,3 +250,4 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
+            
