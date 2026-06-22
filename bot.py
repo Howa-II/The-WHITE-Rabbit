@@ -74,23 +74,19 @@ LANG_EMOJIS = {
 
 LANG_TO_EMOJI = {v: k for k, v in LANG_EMOJIS.items()}
 
-# Pre-calculate select options once at startup
 _all_langs = list(LANG_EMOJIS.items())
 
-# Select A: Back Thought + first 24 languages = 25 options
-_OPTIONS1 = [discord.SelectOption(label="🔎 Back Thought", value="TRUTH", description="Reveals the hidden truth")]
-for _emoji, _lang in _all_langs[:24]:
-    _OPTIONS1.append(discord.SelectOption(label=f"{_emoji} {_lang}", value=_emoji))
+# Select 1: Back Thought only
+_OPTIONS_BT = [discord.SelectOption(label="🔎 Back Thought", value="TRUTH", description="Reveals the hidden truth")]
 
-# Select B: languages 25 to 49 = 25 options
-_OPTIONS2 = []
-for _emoji, _lang in _all_langs[24:49]:
-    _OPTIONS2.append(discord.SelectOption(label=f"{_emoji} {_lang}", value=_emoji))
+# Select 2: Group A — first 25 languages
+_OPTIONS_A = [discord.SelectOption(label=f"{e} {l}", value=e) for e, l in _all_langs[:25]]
 
-# Select C: language 50 (Vietnamese) = 1 option
-_OPTIONS3 = []
-for _emoji, _lang in _all_langs[49:]:
-    _OPTIONS3.append(discord.SelectOption(label=f"{_emoji} {_lang}", value=_emoji))
+# Select 3: Group B — last 25 languages
+_OPTIONS_B = [discord.SelectOption(label=f"{e} {l}", value=e) for e, l in _all_langs[25:]]
+
+_SELECT_A_KEYS = set(e for e, _ in _all_langs[:25])
+_SELECT_B_KEYS = set(e for e, _ in _all_langs[25:])
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -141,14 +137,6 @@ def process_translation(text: str, target_lang: str | None, mode: str) -> tuple[
     return source_lang, result
 
 
-# Keys in Select A (first 24 languages, no TRUTH)
-_SELECT_A_KEYS = set(e for e, _ in _all_langs[:24])
-# Keys in Select B
-_SELECT_B_KEYS = set(e for e, _ in _all_langs[24:49])
-# Keys in Select C
-_SELECT_C_KEYS = set(e for e, _ in _all_langs[49:])
-
-
 class TranslateView(discord.ui.View):
     def __init__(self, original_text: str, message_ref: discord.Message, invoker_id: int):
         super().__init__(timeout=120)
@@ -157,35 +145,38 @@ class TranslateView(discord.ui.View):
         self.invoker_id = invoker_id
         self.selected_values = []
 
-        select1 = discord.ui.Select(
-            placeholder="Back Thought or languages A",
+        # Row 0: Back Thought
+        select_bt = discord.ui.Select(
+            placeholder="🔎 Back Thought",
             min_values=1,
-            max_values=2,
-            options=_OPTIONS1,
+            max_values=1,
+            options=_OPTIONS_BT,
             row=0
         )
-        select1.callback = self.select1_callback
-        self.add_item(select1)
+        select_bt.callback = self.bt_callback
+        self.add_item(select_bt)
 
-        select2 = discord.ui.Select(
-            placeholder="Languages B",
+        # Row 1: Group A
+        select_a = discord.ui.Select(
+            placeholder="Group A — American English → Irish",
             min_values=1,
             max_values=1,
-            options=_OPTIONS2,
+            options=_OPTIONS_A,
             row=1
         )
-        select2.callback = self.select2_callback
-        self.add_item(select2)
+        select_a.callback = self.selecta_callback
+        self.add_item(select_a)
 
-        select3 = discord.ui.Select(
-            placeholder="Languages C",
+        # Row 2: Group B
+        select_b = discord.ui.Select(
+            placeholder="Group B — Italian → Vietnamese",
             min_values=1,
             max_values=1,
-            options=_OPTIONS3,
+            options=_OPTIONS_B,
             row=2
         )
-        select3.callback = self.select3_callback
-        self.add_item(select3)
+        select_b.callback = self.selectb_callback
+        self.add_item(select_b)
 
     def _build_display(self):
         display = []
@@ -196,45 +187,40 @@ class TranslateView(discord.ui.View):
                 display.append(f"{v} {LANG_EMOJIS[v]}")
         return ' + '.join(display) if display else 'None'
 
-    def _update_selection(self, new_values, from_keys):
-        has_truth = "TRUTH" in new_values
-        new_lang = [v for v in new_values if v != "TRUTH"]
+    def _update_lang(self, new_emoji, from_keys):
+        # Remove any previous lang from this group, keep others
+        prev = [v for v in self.selected_values if v not in from_keys]
+        self.selected_values = prev + [new_emoji]
 
-        # Keep TRUTH from previous if not in this select
-        prev_truth = ["TRUTH"] if "TRUTH" in self.selected_values else []
-        # Keep lang from OTHER selects
-        prev_other_lang = [v for v in self.selected_values if v != "TRUTH" and v not in from_keys]
-
-        final_truth = ["TRUTH"] if has_truth else prev_truth
-        final_lang = new_lang if new_lang else []
-        # Replace lang from this select, keep lang from other selects
-        self.selected_values = final_truth + final_lang + prev_other_lang
-
-    async def select1_callback(self, interaction: discord.Interaction):
+    async def bt_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.invoker_id:
             await interaction.response.send_message("❌ This panel is not yours.", ephemeral=True)
             return
-        self._update_selection(interaction.data["values"], _SELECT_A_KEYS | {"TRUTH"})
+        # Toggle Back Thought
+        if "TRUTH" in self.selected_values:
+            self.selected_values.remove("TRUTH")
+        else:
+            self.selected_values = ["TRUTH"] + [v for v in self.selected_values if v != "TRUTH"]
         await interaction.response.edit_message(
             content=f"## [ \"TRANSLATER\". ] *\n**Message:** *{self.original_text[:80]}*\n\n**Selection:** {self._build_display()}\n\nConfirm with ✅",
             view=self
         )
 
-    async def select2_callback(self, interaction: discord.Interaction):
+    async def selecta_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.invoker_id:
             await interaction.response.send_message("❌ This panel is not yours.", ephemeral=True)
             return
-        self._update_selection(interaction.data["values"], _SELECT_B_KEYS)
+        self._update_lang(interaction.data["values"][0], _SELECT_A_KEYS)
         await interaction.response.edit_message(
             content=f"## [ \"TRANSLATER\". ] *\n**Message:** *{self.original_text[:80]}*\n\n**Selection:** {self._build_display()}\n\nConfirm with ✅",
             view=self
         )
 
-    async def select3_callback(self, interaction: discord.Interaction):
+    async def selectb_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.invoker_id:
             await interaction.response.send_message("❌ This panel is not yours.", ephemeral=True)
             return
-        self._update_selection(interaction.data["values"], _SELECT_C_KEYS)
+        self._update_lang(interaction.data["values"][0], _SELECT_B_KEYS)
         await interaction.response.edit_message(
             content=f"## [ \"TRANSLATER\". ] *\n**Message:** *{self.original_text[:80]}*\n\n**Selection:** {self._build_display()}\n\nConfirm with ✅",
             view=self
@@ -349,4 +335,4 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
-    
+                
