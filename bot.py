@@ -9,6 +9,12 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
+# Vérification des clés
+if not DISCORD_TOKEN:
+    print("❌ Erreur : DISCORD_TOKEN est manquant dans le fichier .env")
+if not GEMINI_API_KEY:
+    print("❌ Erreur : GEMINI_API_KEY est manquant dans le fichier .env")
+
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 
@@ -98,6 +104,7 @@ def process_translation(text: str, target_lang: str | None, mode: str) -> tuple[
             f"Text: {text}"
         )
 
+    print(f"🤖 Envoi de la requête à Gemini (Mode: {mode})...")
     response = model.generate_content(prompt)
     lines = response.text.strip().split("\n")
     source_lang = None
@@ -126,7 +133,6 @@ class TranslateView(discord.ui.View):
 
         all_langs = list(LANG_EMOJIS.items())
 
-        # Select 1: Back Thought + first 24 languages (25 options total)
         options1 = [discord.SelectOption(label="🔎 Back Thought", value="TRUTH", description="Reveals the hidden truth")]
         for emoji, lang in all_langs[:24]:
             options1.append(discord.SelectOption(label=f"{emoji} {lang}", value=emoji))
@@ -141,7 +147,6 @@ class TranslateView(discord.ui.View):
         select1.callback = self.select1_callback
         self.add_item(select1)
 
-        # Select 2: remaining languages (26 options)
         options2 = []
         for emoji, lang in all_langs[24:]:
             options2.append(discord.SelectOption(label=f"{emoji} {lang}", value=emoji))
@@ -163,8 +168,6 @@ class TranslateView(discord.ui.View):
 
         new_values = interaction.data["values"]
         new_lang_values = [v for v in new_values if v != "TRUTH"]
-
-        # Keep lang from Select B if already chosen
         prev_lang_b = [v for v in self.selected_values if v != "TRUTH" and v not in dict(list(LANG_EMOJIS.items())[:24])]
 
         has_truth = "TRUTH" in new_values
@@ -190,12 +193,9 @@ class TranslateView(discord.ui.View):
             return
 
         new_values = interaction.data["values"]
-
-        # Keep TRUTH and any lang from Select A if already chosen
         prev_truth = ["TRUTH"] if "TRUTH" in self.selected_values else []
         prev_lang_a = [v for v in self.selected_values if v != "TRUTH" and v in dict(list(LANG_EMOJIS.items())[:24])]
 
-        # Select B replaces lang selection, keeps TRUTH
         final_lang = new_values
         final_truth = prev_truth
 
@@ -222,8 +222,11 @@ class TranslateView(discord.ui.View):
             await interaction.response.send_message("⚠️ Please select a language or Back Thought first!", ephemeral=True)
             return
 
-        # Correction : On utilise edit_message pour passer à l'état de chargement
-        await interaction.response.edit_message(content="⏳ Processing...", view=None)
+        # Indiquer à Discord qu'on traite la demande (évite le timeout de 3s)
+        await interaction.response.defer(ephemeral=True)
+        
+        # On modifie le message d'origine de l'interaction pour afficher le chargement
+        await interaction.edit_original_response(content="⏳ Processing...", view=None)
         self.stop()
 
         values = self.selected_values
@@ -234,60 +237,54 @@ class TranslateView(discord.ui.View):
 
         try:
             if not has_truth and len(lang_values) == 1:
-                # Translation only
                 target_lang = LANG_EMOJIS[lang_values[0]]
                 source_lang, result_text = process_translation(self.original_text, target_lang, "translate")
 
                 if source_lang is None:
-                    await interaction.message.edit(content=f"❌ **Language not registered.**\n**Supported:** {supported_list}")
+                    await interaction.edit_original_response(content=f"❌ **Language not registered.**\n**Supported:** {supported_list}")
                     return
 
                 source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
                 if source_lang == target_lang:
-                    # Same language — one line only
                     reply = f"{source_emoji} *(Already in {source_lang}.)* {translator}"
                 else:
-                    # Translation — two lines
                     reply = f"{source_emoji} {result_text}\nTranslated by {translator}"
 
             elif has_truth and len(lang_values) == 0:
-                # Truth only — two lines
                 source_lang, result_text = process_translation(self.original_text, None, "truth")
 
                 if source_lang is None:
-                    await interaction.message.edit(content=f"❌ **Language not registered.**\n**Supported:** {supported_list}")
+                    await interaction.edit_original_response(content=f"❌ **Language not registered.**\n**Supported:** {supported_list}")
                     return
 
                 reply = f"{result_text}\nRevealed by {translator}"
 
             elif has_truth and len(lang_values) == 1:
-                # Truth + translation
                 target_lang = LANG_EMOJIS[lang_values[0]]
                 source_lang, truth_text = process_translation(self.original_text, None, "truth")
 
                 if source_lang is None:
-                    await interaction.message.edit(content=f"❌ **Language not registered.**\n**Supported:** {supported_list}")
+                    await interaction.edit_original_response(content=f"❌ **Language not registered.**\n**Supported:** {supported_list}")
                     return
 
                 source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
 
                 if source_lang == target_lang:
-                    # Same language — three lines
                     reply = f"{source_emoji} *(Already in {target_lang}.)* {translator}\n{truth_text}\nRevealed by {translator}"
                 else:
-                    # Translate the truth — two lines
                     _, translated_truth = process_translation(truth_text, target_lang, "translate")
                     reply = f"{source_emoji} {translated_truth}\nRevealed and Translated by {translator}"
 
             else:
-                await interaction.message.edit(content="❌ Invalid combination.")
+                await interaction.edit_original_response(content="❌ Invalid combination.")
                 return
 
             await self.message_ref.reply(reply)
-            await interaction.message.edit(content="✅ Done!")
+            await interaction.edit_original_response(content="✅ Done!")
 
         except Exception as e:
-            await interaction.message.edit(content=f"❌ Error: {str(e)}")
+            print(f"❌ Erreur lors du traitement Gemini/Discord : {e}")
+            await interaction.edit_original_response(content=f"❌ Error: {str(e)}")
 
     @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger, row=2)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -320,13 +317,14 @@ async def translate_context_menu(interaction: discord.Interaction, message: disc
 @bot.event
 async def on_ready():
     try:
+        print("🔄 Synchronisation de la commande contextuelle...")
         synced = await bot.tree.sync()
         print(f"✅ {len(synced)} command(s) synced")
     except Exception as e:
         print(f"❌ Sync error: {e}")
-    print(f"✅ Bot connected: {bot.user} (ID: {bot.user.id})")
+    print(f"✅ Bot connecté: {bot.user} (ID: {bot.user.id})")
 
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
-    
+                
