@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-import google.generativeai as genai
+import google.genai as genai
 import os
 import asyncio
 from dotenv import load_dotenv
@@ -10,8 +10,14 @@ load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-2.5-flash")
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+def generate(prompt):
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=prompt
+    )
+    return response.text
 
 LANG_EMOJIS = {
     "🇺🇸": "American English",
@@ -68,14 +74,12 @@ LANG_EMOJIS = {
 
 LANG_TO_EMOJI = {v: k for k, v in LANG_EMOJIS.items()}
 
-# Pre-calculate select options once at startup
-_all_langs = list(LANG_EMOJIS.items())
 _OPTIONS1 = [discord.SelectOption(label="🔎 Back Thought", value="TRUTH", description="Reveals the hidden truth")]
 for _emoji, _lang in _all_langs[:24]:
     _OPTIONS1.append(discord.SelectOption(label=f"{_emoji} {_lang}", value=_emoji))
 
 _OPTIONS2 = []
-for _emoji, _lang in _all_langs[24:]:
+for _emoji, _lang in _all_langs[24:49]:
     _OPTIONS2.append(discord.SelectOption(label=f"{_emoji} {_lang}", value=_emoji))
 
 intents = discord.Intents.default()
@@ -109,8 +113,8 @@ def process_translation(text: str, target_lang: str | None, mode: str) -> tuple[
             f"Text: {text}"
         )
 
-    response = model.generate_content(prompt)
-    lines = response.text.strip().split("\n")
+    response_text = generate(prompt)
+    lines = response_text.strip().split("\n")
     source_lang = None
     result = ""
 
@@ -327,4 +331,3 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
-        
