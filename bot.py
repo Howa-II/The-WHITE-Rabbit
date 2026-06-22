@@ -13,7 +13,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-2.5-flash")
 
 LANG_EMOJIS = {
-    "🇬🇧": "English",
+    "🇬🇧": "British English",
     "🇫🇷": "French",
     "🇸🇦": "Arabic",
     "🇯🇵": "Japanese",
@@ -21,7 +21,7 @@ LANG_EMOJIS = {
     "🇩🇪": "German",
     "🇪🇸": "Spanish",
     "🇷🇺": "Russian",
-    "🇲🇦": "Maghrebi dialect",
+    "🇩🇿": "Maghrebi dialect",
     "🇵🇹": "Portuguese",
     "🇳🇱": "Dutch",
     "🇰🇷": "Korean",
@@ -34,6 +34,35 @@ LANG_EMOJIS = {
     "🇭🇷": "Croatian",
     "🇻🇳": "Vietnamese",
     "🇹🇭": "Thai",
+    "🇱🇾": "Libyan Arabic",
+    "🇹🇷": "Turkish",
+    "🇺🇦": "Ukrainian",
+    "🇮🇩": "Indonesian",
+    "🇸🇪": "Swedish",
+    "🇳🇴": "Norwegian",
+    "🇩🇰": "Danish",
+    "🇮🇸": "Icelandic",
+    "🇫🇮": "Finnish",
+    "🇬🇱": "Kalaallisut",
+    "🇬🇷": "Greek",
+    "🇮🇷": "Persian",
+    "🇵🇸": "Hebrew",
+    "🇲🇦": "Amazigh",
+    "🇮🇳": "Hindi",
+    "🇵🇰": "Urdu",
+    "🇷🇸": "Serbian",
+    "🇲🇾": "Malay",
+    "🇵🇭": "Tagalog",
+    "🇨🇦": "Quebec French",
+    "🇲🇽": "Mexican Spanish",
+    "🇧🇷": "Brazilian Portuguese",
+    "🇦🇺": "Australian English",
+    "🇮🇪": "Irish",
+    "🇺🇸": "American English",
+    "🇪🇬": "Egyptian Arabic",
+    "🇱🇧": "Lebanese Arabic",
+    "🇸🇩": "Sudanese Arabic",
+    "🇮🇶": "Iraqi Arabic",
 }
 
 LANG_TO_EMOJI = {v: k for k, v in LANG_EMOJIS.items()}
@@ -95,19 +124,37 @@ class TranslateView(discord.ui.View):
         self.invoker_id = invoker_id
         self.selected_values = []
 
-        options = [discord.SelectOption(label="🔎 Back Thought", value="TRUTH", description="Reveals the hidden truth")]
-        for emoji, lang in LANG_EMOJIS.items():
-            options.append(discord.SelectOption(label=f"{emoji} {lang}", value=emoji))
+        all_langs = list(LANG_EMOJIS.items())
 
-        select = discord.ui.Select(
-            placeholder="Choose a language or Back Thought",
+        # Select 1: Back Thought + first 24 languages (25 options total)
+        options1 = [discord.SelectOption(label="🔎 Back Thought", value="TRUTH", description="Reveals the hidden truth")]
+        for emoji, lang in all_langs[:24]:
+            options1.append(discord.SelectOption(label=f"{emoji} {lang}", value=emoji))
+
+        select1 = discord.ui.Select(
+            placeholder="Back Thought or languages A",
             min_values=1,
             max_values=2,
-            options=options[:25],
+            options=options1,
             row=0
         )
-        select.callback = self.select_callback
-        self.add_item(select)
+        select1.callback = self.select_callback
+        self.add_item(select1)
+
+        # Select 2: remaining languages (25 options)
+        options2 = []
+        for emoji, lang in all_langs[24:]:
+            options2.append(discord.SelectOption(label=f"{emoji} {lang}", value=emoji))
+
+        select2 = discord.ui.Select(
+            placeholder="Languages B",
+            min_values=1,
+            max_values=1,
+            options=options2,
+            row=1
+        )
+        select2.callback = self.select_callback
+        self.add_item(select2)
 
     async def select_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.invoker_id:
@@ -134,7 +181,7 @@ class TranslateView(discord.ui.View):
             view=self
         )
 
-    @discord.ui.button(label="✅ Confirm", style=discord.ButtonStyle.success, row=1)
+    @discord.ui.button(label="✅ Confirm", style=discord.ButtonStyle.success, row=2)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.invoker_id:
             await interaction.response.send_message("❌ This panel is not yours.", ephemeral=True)
@@ -210,7 +257,7 @@ class TranslateView(discord.ui.View):
         except Exception as e:
             await interaction.edit_original_response(content=f"❌ Error: {str(e)}")
 
-    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger, row=2)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.invoker_id:
             await interaction.response.send_message("❌ This panel is not yours.", ephemeral=True)
@@ -250,4 +297,3 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
-            
