@@ -161,23 +161,38 @@ class TranslateView(discord.ui.View):
             await interaction.response.send_message("❌ This panel is not yours.", ephemeral=True)
             return
 
-        values = interaction.data["values"]
-        lang_values = [v for v in values if v != "TRUTH"]
+        new_values = interaction.data["values"]
+        new_lang_values = [v for v in new_values if v != "TRUTH"]
 
-        if len(lang_values) > 1:
+        # Keep TRUTH from previous selection if it was in Select A
+        has_truth = "TRUTH" in self.selected_values or "TRUTH" in new_values
+
+        # Keep lang from previous selection if it came from the other select
+        prev_lang = [v for v in self.selected_values if v != "TRUTH"]
+
+        # New selection replaces previous lang, but keeps TRUTH if it was set
+        if new_lang_values:
+            final_lang = new_lang_values
+            final_truth = ["TRUTH"] if has_truth and "TRUTH" not in new_values else (["TRUTH"] if "TRUTH" in new_values else [])
+        else:
+            # Only TRUTH selected in this interaction
+            final_lang = prev_lang
+            final_truth = ["TRUTH"] if "TRUTH" in new_values else []
+
+        if len(final_lang) > 1:
             await interaction.response.send_message("❌ Choose only one language at a time.", ephemeral=True)
             return
 
-        self.selected_values = values
+        self.selected_values = final_truth + final_lang
 
         display = []
-        if "TRUTH" in values:
+        if final_truth:
             display.append("🔎 Back Thought")
-        for v in lang_values:
+        for v in final_lang:
             display.append(f"{v} {LANG_EMOJIS[v]}")
 
         await interaction.response.edit_message(
-            content=f"## [ \"TRANSLATER\". ] *\n**Message:** *{self.original_text[:80]}*\n\n**Selection:** {' + '.join(display)}\n\nConfirm with ✅",
+            content=f"## [ \"TRANSLATER\". ] *\n**Message:** *{self.original_text[:80]}*\n\n**Selection:** {' + '.join(display) if display else 'None'}\n\nConfirm with ✅",
             view=self
         )
 
@@ -297,3 +312,4 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
+        
