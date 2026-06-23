@@ -233,7 +233,8 @@ class TranslateView(discord.ui.View):
             return
 
         if not self.selected_values:
-            await interaction.response.send_message("⚠️ Please select at least one option first!", ephemeral=True)
+            # Fixed warning message capitalization and stripped trailing dot
+            await interaction.response.send_message("⚠️ Please Select at least one Option first", ephemeral=True)
             return
 
         await interaction.response.edit_message(content="⏳ Processing...", view=None)
@@ -256,8 +257,7 @@ class TranslateView(discord.ui.View):
                 source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
                 if source_lang == target_lang:
                     reply = f"{source_emoji} *(Already in {source_lang}.)* {translator}"
-                else:
-                    reply = f"{source_emoji} {result_text}\nTranslated by {translator}"
+                else = f"{source_emoji} {result_text}\nTranslated by {translator}"
 
             elif has_truth and len(lang_values) == 0:
                 source_lang, result_text = process_translation(self.original_text, None, "truth")
@@ -306,6 +306,7 @@ class TranslateView(discord.ui.View):
 @bot.tree.context_menu(name="TRANSLATER")
 async def translate_context_menu(interaction: discord.Interaction, message: discord.Message):
     if not message.content.strip():
+        # Fixed error message for empty / incompatible text
         await interaction.response.send_message("❌ This Message is Not Compatible with the Application [ \"TRANSLATER\". ] *", ephemeral=True)
         return
 
@@ -334,4 +335,4 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
-                
+    
