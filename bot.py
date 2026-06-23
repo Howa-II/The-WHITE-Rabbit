@@ -316,7 +316,7 @@ async def translate_context_menu(interaction: discord.Interaction, message: disc
     )
 
     await interaction.response.send_message(
-        f"## [ \"TRANSLATER\". ] *\n**Message :** *{message.content[:80]}{'...' if len(message.content) > 80 else ''}*\n\nSelect at least one option, then confirm",
+        f"## [ \"TRANSLATER\". ] *\n**Message :** *{message.content[:80]}{'...' if len(message.content) > 80 else ''}*\n\nSelect at least one Option, then Confirm",
         view=view,
         ephemeral=True
     )
@@ -334,4 +334,4 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
-            
+                
