@@ -231,7 +231,8 @@ class TranslateView(discord.ui.View):
             return
 
         if not self.selected_values:
-            await interaction.response.send_message("⚠️ Please Select at least one Option first", ephemeral=True)
+            # Message d'avertissement avec le saut de ligne demandé
+            await interaction.response.send_message("⚠️ Please,\nSelect at least one Option first", ephemeral=True)
             return
 
         # Passe le menu privé en état de chargement
@@ -300,7 +301,13 @@ class TranslateView(discord.ui.View):
             await interaction.edit_original_response(content="DONE ! ✅")
 
         except Exception as e:
-            await self.message_ref.reply(f"❌ Error: {str(e)}")
+            # En cas de problème réseau ou d'API Gemini surchargée
+            await self.message_ref.reply("⚠️ Please,\nTry Again")
+            # Met également à jour la réponse éphémère pour avertir l'utilisateur sur son panneau privé
+            try:
+                await interaction.edit_original_response(content="⚠️ Please,\nTry Again")
+            except Exception:
+                pass
 
     @discord.ui.button(label="❌ Cancel", style=discord.ButtonStyle.danger, row=3)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -342,4 +349,3 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
-        
