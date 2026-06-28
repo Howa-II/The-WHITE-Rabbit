@@ -76,7 +76,6 @@ LANG_TO_EMOJI = {v: k for k, v in LANG_EMOJIS.items()}
 
 _all_langs = list(LANG_EMOJIS.items())
 
-# Options for Select and Buttons with exact space styling requested
 _OPTIONS_A = [discord.SelectOption(label=f"{e} {l}", value=e) for e, l in _all_langs[:25]]
 _OPTIONS_B = [discord.SelectOption(label=f"{e} {l}", value=e) for e, l in _all_langs[25:]]
 
@@ -132,6 +131,24 @@ def process_translation(text: str, target_lang: str | None, mode: str) -> tuple[
     return source_lang, result
 
 
+def format_reply_with_emoji(emoji: str, content: str, suffix: str = "") -> str:
+    """Formate la réponse pour mobile : saute la ligne si (Drapeau + Espace + Message) dépasse 40 car."""
+    cleaned_content = content.strip()
+    
+    # Simulation du bloc complet (Drapeau + Espace + Message) sur une ligne
+    inline_test = f"{emoji} {cleaned_content}"
+    
+    # Seuil fixé à 40 caractères max pour éviter les retours à la ligne moches sur smartphone
+    if "\n" in cleaned_content or len(inline_test) > 40:
+        main_body = f"{emoji}\n{cleaned_content}"
+    else:
+        main_body = inline_test
+        
+    if suffix:
+        return f"{main_body}\n{suffix}"
+    return main_body
+
+
 class TranslateView(discord.ui.View):
     def __init__(self, original_text: str, message_ref: discord.Message, invoker_id: int):
         super().__init__(timeout=120)
@@ -140,7 +157,6 @@ class TranslateView(discord.ui.View):
         self.invoker_id = invoker_id
         self.selected_values = []
 
-        # Row 0: Back Thought button
         bt_button = discord.ui.Button(
             label="Back Thought",
             style=discord.ButtonStyle.secondary,
@@ -149,7 +165,6 @@ class TranslateView(discord.ui.View):
         bt_button.callback = self.bt_callback
         self.add_item(bt_button)
 
-        # Row 1: Group A
         select_a = discord.ui.Select(
             placeholder="Group A",
             min_values=1,
@@ -160,7 +175,6 @@ class TranslateView(discord.ui.View):
         select_a.callback = self.selecta_callback
         self.add_item(select_a)
 
-        # Row 2: Group B
         select_b = discord.ui.Select(
             placeholder="Group B",
             min_values=1,
@@ -231,11 +245,10 @@ class TranslateView(discord.ui.View):
             return
 
         if not self.selected_values:
-            # Message d'avertissement avec le saut de ligne demandé
-            await interaction.response.send_message("⚠️ Please,\nSelect at least one Option first", ephemeral=True)
+            # Formatage avec le warning isolé sur sa propre ligne
+            await interaction.response.send_message("⚠️\nPlease,\nSelect at least one Option first", ephemeral=True)
             return
 
-        # Passe le menu privé en état de chargement
         await interaction.response.edit_message(content="⏳ Processing . . .", view=None)
         self.stop()
 
@@ -245,7 +258,6 @@ class TranslateView(discord.ui.View):
         translator = interaction.user.mention
 
         try:
-            # Exécution de l'IA
             if not has_truth and len(lang_values) == 1:
                 target_lang = LANG_EMOJIS[lang_values[0]]
                 source_lang, result_text = process_translation(self.original_text, target_lang, "translate")
@@ -256,9 +268,9 @@ class TranslateView(discord.ui.View):
 
                 source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
                 if source_lang == target_lang:
-                    reply = f"{source_emoji} *(Already in {source_lang}.)* {translator}"
+                    reply = format_reply_with_emoji(source_emoji, f"*(Already in {source_lang}.)*", translator)
                 else:
-                    reply = f"{source_emoji} {result_text}\nTranslated by {translator}"
+                    reply = format_reply_with_emoji(source_emoji, result_text, f"Translated by {translator}")
 
             elif has_truth and len(lang_values) == 0:
                 source_lang, result_text = process_translation(self.original_text, None, "truth")
@@ -280,32 +292,26 @@ class TranslateView(discord.ui.View):
                 source_emoji = LANG_TO_EMOJI.get(source_lang, "🏳️")
 
                 if source_lang == target_lang:
-                    reply = f"{source_emoji} *(Already in {target_lang}.)* {translator}\n{truth_text}\nRevealed by {translator}"
+                    combined_text = f"*(Already in {target_lang}.)*\n\n{truth_text}"
+                    reply = format_reply_with_emoji(source_emoji, combined_text, f"Revealed by {translator}")
                 else:
                     _, translated_truth = process_translation(truth_text, target_lang, "translate")
-                    reply = f"{source_emoji} {translated_truth}\nRevealed and Translated by {translator}"
+                    reply = format_reply_with_emoji(source_emoji, translated_truth, f"Revealed and Translated by {translator}")
 
             else:
                 await self.message_ref.reply("❌ Invalid Combination")
                 return
 
-            # --- SUCCÈS : ENVOI DES MESSAGES ---
-            
-            # 1er message public dans le salon
             await self.message_ref.reply("DONE ! ✅")
-            
-            # 2nd message public : La traduction juste après
             await self.message_ref.reply(reply)
-            
-            # Message éphémère privé de l'utilisateur
             await interaction.edit_original_response(content="DONE ! ✅")
 
         except Exception as e:
-            # En cas de problème réseau ou d'API Gemini surchargée
-            await self.message_ref.reply("⚠️ Please,\nTry Again")
-            # Met également à jour la réponse éphémère pour avertir l'utilisateur sur son panneau privé
+            # Formatage de l'erreur avec le warning isolé sur sa ligne
+            err_msg = "⚠️\nPlease,\nTry Again"
+            await self.message_ref.reply(err_msg)
             try:
-                await interaction.edit_original_response(content="⚠️ Please,\nTry Again")
+                await interaction.edit_original_response(content=err_msg)
             except Exception:
                 pass
 
@@ -349,3 +355,4 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
+    
