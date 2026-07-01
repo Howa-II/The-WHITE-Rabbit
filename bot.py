@@ -24,7 +24,7 @@ LANG_EMOJIS = {
     "🇲🇦": "ⵜⴰⵎⴰⵣⵉⵖⵜ",
     "🇸🇦": "العربية",
     "🇦🇺": "Australian English",
-    "🇧🇷": "Português brasileiro",
+    "🇧🇷": "Português Brasileiro",
     "🇬🇧": "British English",
     "🇧🇬": "Български",
     "🇨🇳": "简体中文",
@@ -32,7 +32,7 @@ LANG_EMOJIS = {
     "🇨🇿": "Čeština",
     "🇩🇰": "Dansk",
     "🇳🇱": "Nederlands",
-    "🇪🇬": "العربية المصرية",
+    "🇪🇬": "اللهجة المصرية",
     "🇫🇮": "Suomi",
     "🇫🇷": "Français",
     "🇩🇪": "Deutsch",
@@ -42,7 +42,7 @@ LANG_EMOJIS = {
     "🇭🇺": "Magyar",
     "🇮🇸": "Íslenska",
     "🇮🇩": "Bahasa Indonesia",
-    "🇮🇶": "العربية العراقية",
+    "🇮🇶": "اللهجة العراقية",
     "🇮🇪": "Gaeilge",
     "🇮🇹": "Italiano",
     "🇯🇵": "日本語",
@@ -52,12 +52,12 @@ LANG_EMOJIS = {
     "🇱🇾": "اللهجة الليبية",
     "🇩🇿": "الدارجة المغربية",
     "🇲🇾": "Bahasa Melayu",
-    "🇲🇽": "Español mexicano",
+    "🇲🇽": "Español Mexicano",
     "🇳🇴": "Norsk",
     "🇮🇷": "فارسی",
     "🇵🇱": "Polski",
     "🇵🇹": "Português",
-    "🇨🇦": "Français québécois",
+    "🇨🇦": "Français Québécois",
     "🇷🇴": "Română",
     "🇷🇺": "Русский",
     "🇷🇸": "Српски",
@@ -106,7 +106,7 @@ def process_translation(text: str, target_lang: str | None, mode: str) -> tuple[
     else:
         lang_instruction = f"in {target_lang}" if target_lang else "in the same language as the original text"
         script_instruction = f"using the native script/alphabet of {target_lang}" if target_lang else "using the native script/alphabet of the original text"
-        if target_lang and "ⵜⴰⵎⴰⵣⵉⵖⵜ" in target_lang:
+        if target_lang and "ⵜⴰⵎⴰざⵉⵖⵜ" in target_lang:
             script_instruction = "exclusively using the Neo-Tifinagh alphabet (ⵜⵉⴼⵉⵏⴰⵖ)"
             
         prompt = (
@@ -141,24 +141,16 @@ def process_translation(text: str, target_lang: str | None, mode: str) -> tuple[
 
 
 def format_reply_with_emoji(emoji: str, content: str, inter_text: str = "", suffix: str = "", require_inter: bool = False) -> str:
-    """
-    Formate la réponse brute.
-    Si require_inter est True et que inter_text est vide (bug Gemini), remplace par un message d'erreur.
-    """
     cleaned_content = content.strip()
     
-    # Règle de structure pour le message principal
     inline_test = f"{emoji} {cleaned_content}"
     if "\n" in cleaned_content or len(inline_test) > 40:
         main_body = f"{emoji}\n{cleaned_content}"
     else:
         main_body = inline_test
         
-    # Gestion de l'alphabet international / translittération
     if require_inter:
         cleaned_inter = inter_text.strip()
-        
-        # Sécurité : Si Gemini a renvoyé du vide pour INTER
         if not cleaned_inter:
             main_body += "\n⚠️ Please, Try Again"
         else:
@@ -185,11 +177,11 @@ class TranslateView(discord.ui.View):
         bt_button.callback = self.bt_callback
         self.add_item(bt_button)
 
-        select_a = discord.ui.Select(placeholder="Group A", min_values=1, max_values=1, options=_OPTIONS_A, row=1)
+        select_a = discord.ui.Select(placeholder="GROUP A", min_values=1, max_values=1, options=_OPTIONS_A, row=1)
         select_a.callback = self.selecta_callback
         self.add_item(select_a)
 
-        select_b = discord.ui.Select(placeholder="Group B", min_values=1, max_values=1, options=_OPTIONS_B, row=2)
+        select_b = discord.ui.Select(placeholder="GROUP B", min_values=1, max_values=1, options=_OPTIONS_B, row=2)
         select_b.callback = self.selectb_callback
         self.add_item(select_b)
 
@@ -200,11 +192,27 @@ class TranslateView(discord.ui.View):
         for v in self.selected_values:
             if v != "TRUTH":
                 display.append(f"{v} {LANG_EMOJIS[v]}")
-        return ' + '.join(display) if display else 'None'
+        return ' + '.join(display) if display else None
 
     def _update_lang(self, new_emoji, from_keys):
-        prev = [v for v in self.selected_values if v not in from_keys]
-        self.selected_values = prev + [new_emoji]
+        # Si la langue sélectionnée était déjà présente, on l'annule (on la retire)
+        if new_emoji in self.selected_values:
+            self.selected_values.remove(new_emoji)
+        else:
+            # Sinon, on supprime d'abord toute autre langue issue du même groupe et on ajoute la nouvelle
+            prev = [v for v in self.selected_values if v not in from_keys]
+            self.selected_values = prev + [new_emoji]
+
+    async def _send_current_state(self, interaction: discord.Interaction):
+        display_str = self._build_display()
+        
+        if display_str is None:
+            # S'il n'y a plus aucune sélection, on reaffiche le message d'origine exact
+            content = f"## [ \"TRANSLATER\". ] *\n**Message :** *{self.original_text[:80]}{'...' if len(self.original_text) > 80 else ''}*\n\nPlease,\nSelect At Least one Option, then Confirm"
+        else:
+            content = f"## [ \"TRANSLATER\". ] *\n**Message :** *{self.original_text[:80]}*\n\n**Selection :** {display_str}\n\nConfirm"
+            
+        await interaction.response.edit_message(content=content, view=self)
 
     async def bt_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.invoker_id:
@@ -221,30 +229,21 @@ class TranslateView(discord.ui.View):
                 if isinstance(item, discord.ui.Button) and item.label == "Back Thought":
                     item.style = discord.ButtonStyle.success
                     
-        await interaction.response.edit_message(
-            content=f"## [ \"TRANSLATER\". ] *\n**Message :** *{self.original_text[:80]}*\n\n**Selection :** {self._build_display()}\n\nConfirm",
-            view=self
-        )
+        await self._send_current_state(interaction)
 
     async def selecta_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.invoker_id:
             await interaction.response.send_message("❌ This panel does not belong to you.", ephemeral=True)
             return
         self._update_lang(interaction.data["values"][0], _SELECT_A_KEYS)
-        await interaction.response.edit_message(
-            content=f"## [ \"TRANSLATER\". ] *\n**Message :** *{self.original_text[:80]}*\n\n**Selection :** {self._build_display()}\n\nConfirm",
-            view=self
-        )
+        await self._send_current_state(interaction)
 
     async def selectb_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.invoker_id:
             await interaction.response.send_message("❌ This panel does not belong to you.", ephemeral=True)
             return
         self._update_lang(interaction.data["values"][0], _SELECT_B_KEYS)
-        await interaction.response.edit_message(
-            content=f"## [ \"TRANSLATER\". ] *\n**Message :** *{self.original_text[:80]}*\n\n**Selection :** {self._build_display()}\n\nConfirm",
-            view=self
-        )
+        await self._send_current_state(interaction)
 
     @discord.ui.button(label="✅ Confirm", style=discord.ButtonStyle.success, row=3)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -338,7 +337,7 @@ async def translate_context_menu(interaction: discord.Interaction, message: disc
 
     view = TranslateView(original_text=message.content, message_ref=message, invoker_id=interaction.user.id)
     await interaction.response.send_message(
-        f"## [ \"TRANSLATER\". ] *\n**Message :** *{message.content[:80]}{'...' if len(message.content) > 80 else ''}*\n\nSelect at least one Option, then Confirm",
+        f"## [ \"TRANSLATER\". ] *\n**Message :** *{message.content[:80]}{'...' if len(message.content) > 80 else ''}*\n\nPlease,\nSelect At Least one Option, then Confirm",
         view=view,
         ephemeral=True
     )
@@ -356,4 +355,4 @@ async def on_ready():
 
 if __name__ == "__main__":
     bot.run(DISCORD_TOKEN)
-    
+        
